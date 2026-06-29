@@ -1,113 +1,91 @@
 # Inventory Management API
 
-A REST API for managing products, suppliers, and stock levels, built with
-**ASP.NET Core (.NET)** and **Entity Framework Core**. It follows a clean,
-layered architecture (Controller → Service → Repository → EF Core) that keeps
-business rules out of the controllers and makes the code easy to test and extend.
+A small REST API for tracking products, suppliers, and stock levels — built with ASP.NET Core (.NET 10) and EF Core.
 
-The domain models a small warehouse: products belong to suppliers, each product
-has a **reorder level**, and the API can report which products have fallen to or
-below that level so they can be re-ordered.
+I wanted a backend project to practice clean layering in ASP.NET Core rather than dumping everything into controllers, so I modeled a small warehouse: products belong to a supplier, each product has a reorder level, and the API can tell you which products have dropped to or below that level so you know what to restock.
 
----
-
-## Features
-
-- **Product management** – full CRUD for products (name, SKU, quantity, reorder level, supplier).
-- **Supplier management** – create, list, look up, and delete suppliers.
-- **Low-stock reporting** – `GET /api/products/low-stock` returns products at or below their reorder level.
-- **Stock movements** – a `StockMovement` entity linked to each product, ready to record stock-in / stock-out history.
-- **Input validation** – DTOs use data annotations (e.g. quantity must be non-negative) so invalid requests are rejected with a clear error.
-- **Layered architecture** – controllers stay thin; services return an explicit `(success, error)` result that the controller maps to the right HTTP status.
-- **EF Core migrations** – the schema is versioned and reproducible.
-
-## Tech stack
-
-| Concern | Technology |
-|---|---|
-| Framework | ASP.NET Core / .NET |
-| Data access | Entity Framework Core (SQL Server) |
-| Architecture | Controller / Service / Repository layers + DTOs |
-| API docs | Swagger / OpenAPI |
-
-## Architecture
+The request path is straightforward:
 
 ```
-Controllers  ->  Services  ->  Repositories  ->  EF Core DbContext  ->  SQL Server
-   (HTTP)        (rules)       (data access)
-                 returns (success, error)
+Controller  ->  Service  ->  Repository  ->  EF Core (DbContext)  ->  SQL Server
+  (HTTP)        (rules)      (data access)
 ```
 
-Separating services from repositories means the validation/business rules
-(for example "an SKU must be unique" or "quantity cannot go negative") live in
-one place and can be unit-tested without touching the database.
+The reason I split services from repositories is so the rules (validation, "is this product low on stock", mapping to DTOs) live in one place. Services return an explicit `(success, error)` tuple and the controller just maps that to the right HTTP status — controllers stay thin and there's no business logic hiding in them.
 
----
+## What it does
 
-## Getting started
+- CRUD for products (name, SKU, quantity, reorder level, supplier).
+- Create / list / look up / delete suppliers.
+- `GET /api/products/low-stock` — products at or below their reorder level.
+- DTO validation via data annotations, so e.g. negative quantities get rejected with a clear message instead of hitting the database.
+- EF Core migrations, so the schema is versioned and reproducible.
 
-Requires the .NET SDK and a reachable SQL Server instance.
+There's also a `StockMovement` entity wired to each product. It's in the model and the migration, but I haven't built endpoints for it yet — see the bottom of this file.
+
+## Stack
+
+- .NET 10 / ASP.NET Core
+- Entity Framework Core 10 (SQL Server provider)
+- Swagger / OpenAPI (Swashbuckle) for the dev UI
+
+## Running it
+
+You need the .NET 10 SDK and a SQL Server you can reach. By default the connection string points at LocalDB (`(localdb)\MSSQLLocalDB`, database `InventoryDb`), which works out of the box on Windows — change `ConnectionStrings:DefaultConnection` in `appsettings.json` if you're pointing somewhere else.
 
 ```bash
-# from the repository root
 cd InventoryManagement.API
-
-# set your connection string in appsettings.json (ConnectionStrings:DefaultConnection)
 dotnet restore
 dotnet ef database update   # apply migrations
 dotnet run
 ```
 
-Swagger UI is then available at the URL printed in the console (e.g. `https://localhost:7xxx/swagger`).
+Swagger UI comes up at the HTTPS URL printed in the console (something like `https://localhost:7xxx/swagger`).
 
----
+> Note: `appsettings.json` currently has a sample `Jwt:Key` committed in it. It's a placeholder, but if you fork this, move it to user secrets or an environment variable rather than a real key in the file.
 
-## API reference
+## Endpoints
 
-### Products — `/api/products`
+**Products — `/api/products`**
 
-| Method | Route | Description |
+| Method | Route | What it does |
 |---|---|---|
-| `GET` | `/` | List all products. |
-| `GET` | `/{id}` | Get one product by id. |
-| `GET` | `/low-stock` | List products at or below their reorder level. |
-| `POST` | `/` | Create a product. |
-| `PUT` | `/{id}` | Update a product. |
-| `DELETE` | `/{id}` | Delete a product. |
+| GET | `/` | List all products |
+| GET | `/{id}` | Get one product |
+| GET | `/low-stock` | Products at or below reorder level |
+| POST | `/` | Create a product |
+| PUT | `/{id}` | Update a product |
+| DELETE | `/{id}` | Delete a product |
 
-### Suppliers — `/api/suppliers`
+**Suppliers — `/api/suppliers`**
 
-| Method | Route | Description |
+| Method | Route | What it does |
 |---|---|---|
-| `GET` | `/` | List all suppliers. |
-| `GET` | `/{id}` | Get one supplier by id. |
-| `POST` | `/` | Create a supplier. |
-| `DELETE` | `/{id}` | Delete a supplier. |
+| GET | `/` | List all suppliers |
+| GET | `/{id}` | Get one supplier |
+| POST | `/` | Create a supplier |
+| DELETE | `/{id}` | Delete a supplier |
 
-### Example
+A quick walk-through — create a supplier, add a product that reorders at 10 units, then watch it show up as low stock:
 
 ```bash
-# Create a supplier, then a product that reorders at 10 units
 curl -X POST https://localhost:7000/api/suppliers \
   -H "Content-Type: application/json" \
-  -d '{"name":"Acme GmbH"}'
+  -d '{"name":"Acme GmbH","email":"sales@acme.example","phone":"+49 30 000000"}'
 
 curl -X POST https://localhost:7000/api/products \
   -H "Content-Type: application/json" \
   -d '{"name":"Widget","sku":"WID-001","quantity":5,"reorderLevel":10,"supplierId":1}'
 
-# This product (qty 5 <= reorder 10) now shows up here:
+# quantity 5 <= reorder 10, so this product appears here:
 curl https://localhost:7000/api/products/low-stock
 ```
 
----
+## What I'd add next
 
-## Roadmap
+A few things I deliberately left as groundwork rather than half-built features:
 
-These are intentionally not yet implemented — the groundwork (a `User` model and the
-`JwtBearer` package) is in place for the first item:
-
-- **JWT authentication & authorization** – protect the write endpoints so only signed-in users can modify inventory.
-- **Stock-movement endpoints** – record and query stock-in/stock-out history (the `StockMovement` entity already exists).
-- **Automated tests** for the service layer.
-- **Pagination** on the list endpoints.
+- **Auth.** There's a `User` model and the JWT/BCrypt packages are referenced, but authentication isn't wired into the pipeline yet. The plan is to lock down the write endpoints so only signed-in users can change inventory.
+- **Stock-movement endpoints** to record and query stock-in/stock-out history (the entity already exists).
+- **Tests** for the service layer — that's where most of the logic lives, so it's the obvious place to start.
+- **Pagination** on the list endpoints once there's enough data to need it.
